@@ -8,31 +8,18 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import tensorflow as tf
-from tqdm import tqdm_notebook
-
-
 import tensorflow.contrib.distributions as tfd
+
+from plink_feed import PlinkDataset
 
 
 def main():
-
-    # input data
-    ## TODO: replace with tf.flags
-    # latent_df = pd.read_csv('./data/spatial_a-0.1_N-10000_M-1000.latent_rep.txt', sep='\t')
-    # log_dir = ''
-    # X = np.load('../data/spatial_a-0.1_N-10000_M-1000.pandas.gz.npy')
-    # X = X.astype(np.float32)
-    # X_train, X_test, latent_df_train, latent_df_test = train_test_split(X, latent_df, test_size=0.2)
-
-
-    M_variants = X.shape[1]
-    N_samples = X.shape[0]
 
     batch_size = 100
     latent_dim = 2
     epochs = 50
 
-    # define out model
+    # define our model
     graph = tf.Graph()
     with graph.as_default():
     
@@ -61,7 +48,8 @@ def main():
         
         
         # Data input
-        data = tf.placeholder(tf.float32, shape=[None, M_variants])    
+        input_dataset = PlinkDataset(test_prop=0.5)
+        data = tf.placeholder(tf.float32, shape=[None, input_dataset.m_variants])
 
         # Define the model.
         prior = make_prior(latent_dim=2)
@@ -71,7 +59,7 @@ def main():
 
         # Define the loss.
         make_decoder = tf.make_template('decoder', make_decoder) # tf scoping
-        likelihood = make_decoder(code, [M_variants]).log_prob(data)
+        likelihood = make_decoder(code, [input_dataset.m_variants]).log_prob(data)
         divergence = tfd.kl_divergence(posterior, prior)
         elbo = tf.reduce_mean(likelihood - divergence)
         optimize = tf.train.AdamOptimizer(0.001).minimize(-elbo)
@@ -79,13 +67,13 @@ def main():
         # Infer parameters.
         saver = tf.train.Saver()
         with tf.train.MonitoredSession() as sess:
-
-            for epoch in tqdm_notebook(range(50)):
-                test_feed = {data: X_test}
+            for epoch in range(50):
+                input_dataset = PlinkDataset(test_prop=0.5)
+                test_feed = {data: input_dataset.test_set()}
                 test_elbo, test_codes = sess.run([elbo, code], test_feed)
                 print('Epoch', epoch, 'elbo', test_elbo)
-                for train_batch in tqdm_notebook(minibatch(X_train, batch_size=10), leave=False):
-                    train_feed = {data: X_train}
+                for training_batch in input_dataset.train_set_minibatches():
+                    train_feed = {data: training_batch}
                     sess.run(optimize, train_feed)
             
             saver.save(sess, FLAGS.train_dir, global_step)

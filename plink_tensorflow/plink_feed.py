@@ -14,6 +14,8 @@ from pandas_plink import read_plink
 from sklearn.model_selection import train_test_split
 from random import shuffle
 import numpy as np
+import dask.array as da
+
 
 def minibatch(X, batch_size, shuffle=True):
     '''
@@ -30,9 +32,9 @@ def minibatch(X, batch_size, shuffle=True):
         yield data
 
 
-class PlinkFeed:
+class PlinkDataset:
 
-    def __init__(self, test_prop=0.8, raw_data_dir='/data/'):
+    def __init__(self, test_prop=0.8, raw_data_dir='/plink_tensorflow/data/'):
         '''
         @test_prop: The rough proportion of sample to dedicate to training.
         @raw_data_dir: Directory containing PLINK formatted files for each study.
@@ -64,6 +66,7 @@ class PlinkFeed:
             if train_set_size < (total_sample_size * test_prop):
                 self.train_studies[study] = study_arrays[study]
                 train_set_size += study_arrays[study][1].shape[0]
+                self.m_variants = study_arrays[study][0].shape[0]
             else:
                 self.test_studies[study] = study_arrays[study]
                 test_set_size += study_arrays[study][1].shape[0]
@@ -71,18 +74,16 @@ class PlinkFeed:
         print('{} studies and {:.3f} of samples in training set.'.format(len(self.train_studies.keys()), train_set_size/total_sample_size))
         print('{} studies and {:.3f} of samples in test set.'.format(len(self.test_studies.keys()), test_set_size/total_sample_size))
 
+        ## TODO: check that all studies contain the same variants
 
-    def batch_generator(self, mode, batch_size=10):
+    def test_set(self):
+        gene_matrix = da.concatenate([G for (bim, fam, G) in self.test_studies.values()], axis=0)
+        return da.transpose(gene_matrix)
+
+    def train_set_minibatches(self, batch_size=10):
         '''
         Yield batches of samples from the studies in the test and train datasets.
         '''
-        if mode == 'train':
-            for study, (bim, fam, G) in self.train_studies.items():
-                for batch in minibatch(G, batch_size=batch_size):
-                    yield batch
-        elif mode == 'test':
-            for study, (bim, fam, G) in self.test_studies.items():
-                for batch in minibatch(G, batch_size=batch_size):
-                    yield batch
-        else:
-            print('Argmument \'{}\' is not a valid mode for generating batches.'.format(mode)) 
+        for study, (bim, fam, G) in self.train_studies.items():
+            for batch in minibatch(da.transpose(G), batch_size=batch_size):
+                yield batch
