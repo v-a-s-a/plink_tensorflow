@@ -32,53 +32,67 @@ def minibatch(X, batch_size, shuffle=True):
         yield data
 
 
-class PlinkDataset:
+class MetaAnalysisDataset:
 
     def __init__(self, test_prop=0.8, raw_data_dir='/plink_tensorflow/data/'):
         '''
+        Map a directory of plink files to dask arrays and pandas dataframes.
+
         @test_prop: The rough proportion of sample to dedicate to training.
         @raw_data_dir: Directory containing PLINK formatted files for each study.
         '''
 
-        # map the input files
-         # this is a typical mount for my singu
+        self.test_prop = test_prop
+
+        # map the input files into pandas dataframes and dask arrays
         root, dirs, files = next(os.walk(raw_data_dir))
         study_plink_prefixes = [root+f.replace('.bim', '') for f in files if f.endswith('.bim')]
         
         # read_plink -> (bim, fam, G)
         print('Generating Dask arrays from study PLINK files...')
-        study_arrays = {os.path.basename(f): read_plink(f) for f in study_plink_prefixes}
+        self.study_arrays = {os.path.basename(f): read_plink(f) for f in study_plink_prefixes}
         print('Done')
 
-        # We split test/train by study.
-        # We want to make sure that proportion of test/train is related to number of
-        # samples in each study.
-        # Greedy solution: Randomly select datasets for testing until the proportion
-        # of the test set is exceeded.
-        total_sample_size = float(sum([x[1].shape[0] for x in study_arrays.values()]))
+        # split into test/training sets
+        self.test_train_split()
+
+        ## TODO: check that all studies contain the same variants
+
+
+    def test_train_split(self):
+        '''
+        We split test/train by study.
+        We want to make sure that proportion of test/train is related to number of
+        samples in each study.
+
+        Greedy solution: Randomly select datasets for testing until the proportion
+            of the test set is exceeded.
+        '''
+        total_sample_size = float(sum([x[1].shape[0] for x in self.study_arrays.values()]))
         self.test_studies = {}
         self.train_studies = {}
         train_set_size = 0.0
         test_set_size = 0.0
-        studies = study_arrays.keys()
+        studies = self.study_arrays.keys()
         shuffle(studies)
         for study in studies:
-            if train_set_size < (total_sample_size * test_prop):
-                self.train_studies[study] = study_arrays[study]
-                train_set_size += study_arrays[study][1].shape[0]
-                self.m_variants = study_arrays[study][0].shape[0]
+            if train_set_size < (total_sample_size * self.test_prop):
+                self.train_studies[study] = self.study_arrays[study]
+                train_set_size += self.study_arrays[study][1].shape[0]
+                self.m_variants = self.study_arrays[study][0].shape[0]
             else:
-                self.test_studies[study] = study_arrays[study]
-                test_set_size += study_arrays[study][1].shape[0]
-
+                self.test_studies[study] = self.study_arrays[study]
+        
+        # some logging
         print('{} studies and {:.3f} of samples in training set.'.format(len(self.train_studies.keys()), train_set_size/total_sample_size))
         print('{} studies and {:.3f} of samples in test set.'.format(len(self.test_studies.keys()), test_set_size/total_sample_size))
 
-        ## TODO: check that all studies contain the same variants
+
 
     def test_set(self):
         gene_matrix = da.concatenate([G for (bim, fam, G) in self.test_studies.values()], axis=0)
         return da.transpose(gene_matrix)
+
 
     def train_set_minibatches(self, batch_size=10):
         '''
