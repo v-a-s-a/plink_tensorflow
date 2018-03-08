@@ -9,6 +9,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import tensorflow as tf
 import tensorflow.contrib.distributions as tfd
+from tqdm import tqdm
 
 from plink_feed import MetaAnalysisDataset
 
@@ -23,35 +24,37 @@ class BasicVariationalAutoencoder():
         epochs = 50
         
         # Data input
-        input_dataset = MetaAnalysisDataset(test_prop=0.5)
-        data = tf.placeholder(tf.float32, shape=[None, input_dataset.m_variants])
+        self.input_dataset = MetaAnalysisDataset(test_prop=0.5)
+        self.data = tf.placeholder(tf.float32, shape=[None, self.input_dataset.m_variants])
 
         # Define the model.
         prior = self._make_prior(latent_dim=2)
         make_encoder = tf.make_template('encoder', self._make_encoder) # tf scoping
-        posterior = make_encoder(data, latent_dim=2)
-        code = posterior.sample()
+        posterior = make_encoder(self.data, latent_dim=2)
+        self.latent_z = posterior.sample()
 
         # Define the loss.
         make_decoder = tf.make_template('decoder', self._make_decoder) # tf scoping
-        likelihood = make_decoder(code, [input_dataset.m_variants]).log_prob(data)
+        likelihood = make_decoder(self.latent_z, [self.input_dataset.m_variants]).log_prob(self.data)
         divergence = tfd.kl_divergence(posterior, prior)
-        elbo = tf.reduce_mean(likelihood - divergence)
-        optimize = tf.train.AdamOptimizer(0.001).minimize(-elbo)
+        self.elbo = tf.reduce_mean(likelihood - divergence)
+        self.optimizer = tf.train.AdamOptimizer(0.001).minimize(-self.elbo)
 
-        # Infer parameters.
+
+    def infer_parameters(self):
         saver = tf.train.Saver()
         with tf.train.MonitoredSession() as sess:
-            for epoch in range(50):
-                input_dataset.test_train_split()
-                test_feed = {data: input_dataset.test_set()}
-                test_elbo, test_codes = sess.run([elbo, code], test_feed)
+            for epoch in tqdm(range(50)):
+                self.input_dataset.test_train_split()
+                test_feed = {self.data: self.input_dataset.test_set()}
+                test_elbo, test_codes = sess.run([self.elbo, self.latent_z], test_feed)
                 print('Epoch', epoch, 'elbo', test_elbo)
-                for training_batch in input_dataset.train_set_minibatches():
-                    train_feed = {data: training_batch}
-                    sess.run(optimize, train_feed)
+                for training_batch in tqdm(self.input_dataset.train_set_minibatches()):
+                    train_feed = {self.data: training_batch}
+                    sess.run(self.optimizer, train_feed)
             
             saver.save(sess, FLAGS.train_dir, global_step)
+
 
     def _make_encoder(self, data, latent_dim):
         x = tf.layers.flatten(data)
@@ -78,4 +81,5 @@ class BasicVariationalAutoencoder():
 
 
 if __name__ == '__main__':
-    vae = BasicVariationalAutoencoder()    
+    vae = BasicVariationalAutoencoder()
+    vae.infer_parameters()
