@@ -1,5 +1,5 @@
 Bootstrap: docker
-From: tensorflow/tensorflow:latest
+From: tensorflow/tensorflow:latest-py3
 
 %setup
 %test
@@ -12,6 +12,7 @@ From: tensorflow/tensorflow:latest
     apt-get install -y vim wget python3 python3-pip git 
     apt-get install -y --force-yes python-dev python-numpy python-matplotlib python-h5py 
     apt-get install -y --force-yes python-setuptools 
+    apt-get install -y --force-yes python3-tk
     pip install --upgrade pip 
     pip install --upgrade pandas 
     pip install --upgrade scikit-learn
@@ -20,4 +21,5 @@ From: tensorflow/tensorflow:latest
     # install python packages
     pip install --upgrade dask[dataframe]
     pip install --upgrade pandas-plink
+    pip install --upgrade ipdb
     
