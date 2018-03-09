@@ -18,5 +18,6 @@ From: tensorflow/tensorflow:latest
     pip install --upgrade numpy
 
     # install python packages
+    pip install --upgrade dask[dataframe]
     pip install --upgrade pandas-plink
     
