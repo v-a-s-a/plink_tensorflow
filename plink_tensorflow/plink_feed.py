@@ -84,14 +84,14 @@ class MetaAnalysisDataset:
                 self.test_studies[study] = self.study_arrays[study]
         
         # some logging
-        print('{} studies and {:.3f} of samples in training set.'.format(len(self.train_studies.keys()), train_set_size/total_sample_size))
-        print('{} studies and {:.3f} of samples in test set.'.format(len(self.test_studies.keys()), test_set_size/total_sample_size))
-
+        print('Training set:\t{} studies and {:.3f} of samples in training set.'.format(len(self.train_studies.keys()), train_set_size/total_sample_size))
+        print('Testing set: \t{} studies, {:.3f} of samples in test set.'.format(len(self.test_studies.keys()), test_set_size/total_sample_size))
 
 
     def test_set(self):
         gene_matrix = da.concatenate([G for (bim, fam, G) in self.test_studies.values()], axis=0)
-        return da.transpose(gene_matrix)
+        gene_matrix = da.transpose(gene_matrix).to_dask_dataframe()
+        return gene_matrix.fillna(gene_matrix.mean(axis=0), axis=0)
 
 
     def train_set_minibatches(self, batch_size=10):
@@ -100,4 +100,5 @@ class MetaAnalysisDataset:
         '''
         for study, (bim, fam, G) in self.train_studies.items():
             for batch in minibatch(da.transpose(G), batch_size=batch_size):
-                yield batch
+                gene_matrix = batch.to_dask_dataframe()
+                yield gene_matrix.fillna(gene_matrix.mean(axis=0), axis=0)
