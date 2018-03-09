@@ -45,6 +45,7 @@ class MetaAnalysisDataset:
         @raw_data_dir: Directory containing PLINK formatted files for each study.
         '''
         self.test_prop = test_prop
+        self.options = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.NONE)
 
         # map the input files into pandas dataframes and dask arrays
         root, dirs, files = next(os.walk(raw_data_dir))
@@ -56,11 +57,14 @@ class MetaAnalysisDataset:
         self.study_arrays = {os.path.basename(f): read_plink(f) for f in study_plink_prefixes}
         print('Done')
 
+        self.m_variants = sum([bim.shape[0] for (bim, fam, G) in self.study_arrays.values()])
+
         # write tf.records
         self.study_records = self.make_tf_records(tf_records_dir=tf_records_dir)
+        print(self.study_records.values())
 
 
-    def make_tf_records(self, tf_records_dir, compress=True):
+    def make_tf_records(self, tf_records_dir, compress=True, overwrite=False):
         '''
         Write study PLINK files to tf.Records after preprocessing.
 
@@ -71,42 +75,48 @@ class MetaAnalysisDataset:
         And a nice little gist about having numpy arrays play nice:
             https://gist.github.com/swyoon/8185b3dcf08ec728fb22b99016dd533f
 
-        Preprocessing:
-            * Fill missing values with binomial draws with population frequency.
+
         '''
         if compress:
-            options = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.GZIP)
-        else:
-            options =  tf.python_io.TFRecordOptions()
+            self.options = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.GZIP)
 
         records = {}
+        sample_sizes = {}
         for study, (bim, fam, G) in self.study_arrays.items():
-            # The dataframe -> array -> dataframe is pretty painful, with an unecessary
-            # type conversion as well.
-            G_df = G.to_dask_dataframe()
-            # TODO: Add random missing data fill
-            G = G_df.fillna(axis=0, method='backfill').values.compute().astype(np.int8)
-
             filename = os.path.join(tf_records_dir, study + '.tfrecords')
-            print('Writing {}'.format(filename))
-            with tf.python_io.TFRecordWriter(filename, options=options) as tfwriter:
-                # write each individual gene vector to record
-                for sample_j in range(G.shape[1]):
-                    # make a feature containing the gene vector
-                    # import pdb
-                    # pdb.set_trace()
 
-                    # gene_vector = {'gene_vector': tf.train.Feature(
-                    #     bytes_list=tf.train.BytesList(value=[G[:, sample_j].tobytes()]))}
 
-                    gene_vector = {'gene_vector': tf.train.Feature(
-                        int64_list=tf.train.Int64List(value=G[:, sample_j]))}
+            # The dataframe -> array -> dataframe is pretty painful, with an unecessary
+            #   type conversion as well.
+            G_df = G.to_dask_dataframe()
+            # TODO: Add better missing data fill
+            G = G_df.fillna(axis=0, method='backfill').values.compute().astype(np.int8)
+            if os.path.exists(filename) or overwrite:
+                print('Skipping conversion of dataset {}'.format(study))
+            else:
+                print('Writing {}'.format(filename))
+                with tf.python_io.TFRecordWriter(filename, options=self.options) as tfwriter:
+                    # write each individual gene vector to record
+                    for sample_j in range(G.shape[1]):
+                        gene_vector = {'gene_vector': tf.train.Feature(
+                            int64_list=tf.train.Int64List(value=G[:, sample_j]))}
 
-                    example = tf.train.Example(
-                        features=tf.train.Features(feature=gene_vector))
-                    tfwriter.write(example.SerializeToString())
+                        example = tf.train.Example(
+                            features=tf.train.Features(feature=gene_vector))
+                        tfwriter.write(example.SerializeToString())
             records[study] = filename
+            sample_sizes[filename] = fam.shape[0] 
         return records
+
+
+    def decode_tf_records(self, filename):
+        '''
+        Helpful blog post:
+        http://warmspringwinds.github.io/tensorflow/tf-slim/2016/12/21/tfrecords-guide/
+        '''
+        features = {'gene_vector': tf.FixedLenFeature((), tf.int64, default_value=0)}
+        parsed_features = tf.parse_single_example(filename, features)
+        return parsed_features['gene_vector']
 
 
     def test_train_split(self):

@@ -21,35 +21,54 @@ class BasicVariationalAutoencoder():
         
         # Data input
         self.input_dataset = MetaAnalysisDataset(test_prop=0.5)
-        self.data = tf.placeholder(tf.float32,
-            shape=[None, self.input_dataset.m_variants])
+
+        print('Building computational graph.')
+        self.filenames = tf.placeholder(tf.string, shape=[])
+        self.dataset = tf.data.TFRecordDataset(self.filenames, compression_type=tf.constant('ZLIB'))
+        self.dataset = self.dataset.map(self.input_dataset.decode_tf_records)
+        
+        self.iterator = self.dataset.make_initializable_iterator()
+        next_element = self.iterator.get_next()
+        self.shape = tf.shape(next_element)
+
+        # self.dataset = tf.data.TFRecordDataset.concatenate(self.dataset)
+        # shape = self.dataset.shape
+        # TODO: merge the tensors from individual studies
+        # TODO: calculate correct batch size
+        # self.dataset = self.dataset.batch(10)
+        # iterator = self.dataset.make_initializable_iterator()
+        # next_element = iterator.get_next()
 
         # Define the model.
-        prior = self._make_prior(latent_dim=2)
-        make_encoder = tf.make_template('encoder', self._make_encoder) # tf scoping
-        posterior = make_encoder(self.data, latent_dim=2)
-        self.latent_z = posterior.sample()
+        # prior = self._make_prior(latent_dim=2)
+        # make_encoder = tf.make_template('encoder', self._make_encoder) 
+        # posterior = make_encoder(self.dataset, latent_dim=2)
+        # self.latent_z = posterior.sample()
 
-        # Define the loss.
-        make_decoder = tf.make_template('decoder', self._make_decoder) # tf scoping
-        likelihood = make_decoder(self.latent_z,
-            [self.input_dataset.m_variants]).log_prob(self.data)
-        divergence = tfd.kl_divergence(posterior, prior)
-        self.elbo = tf.reduce_mean(likelihood - divergence)
-        self.optimizer = tf.train.AdamOptimizer(0.001).minimize(-self.elbo)
+        # # Define the loss.
+        # make_decoder = tf.make_template('decoder', self._make_decoder)
+        # likelihood = make_decoder(self.latent_z,
+        #     [self.input_dataset.m_variants]).log_prob(next_element)
+        # divergence = tfd.kl_divergence(posterior, prior)
+        # self.elbo = tf.reduce_mean(likelihood - divergence)
+        # self.optimizer = tf.train.AdamOptimizer(0.001).minimize(-self.elbo)
 
 
     def infer_parameters(self):
         # with tf_debug.LocalCLIDebugWrapperSession(tf.train.MonitoredSession()) as sess:
-        with tf.train.MonitoredSession() as sess:
-            for epoch in tqdm(range(50)):
-                self.input_dataset.test_train_split()
-                test_feed = {self.data: self.input_dataset.test_set()}
-                test_elbo, test_codes = sess.run([self.elbo, self.latent_z], test_feed)
-                print('Epoch', epoch, 'elbo', test_elbo)
-                for training_batch in tqdm(self.input_dataset.train_set_minibatches()):
-                    train_feed = {self.data: training_batch}
-                    sess.run(self.optimizer, train_feed)
+        print('Executing compute graph.')
+        with tf.Session() as sess:
+
+            sess.run(self.iterator.initializer, feed_dict={self.filenames: self.input_dataset.study_records.values()})
+            sess.run(self.shape)
+            # for epoch in tqdm(range(50)):
+            #     self.input_dataset.test_train_split()
+            #     test_feed = {self.data: self.input_dataset.test_set()}
+            #     test_elbo, test_codes = sess.run([self.elbo, self.latent_z], test_feed)
+            #     print('Epoch', epoch, 'elbo', test_elbo)
+            #     for training_batch in tqdm(self.input_dataset.train_set_minibatches()):
+            #         train_feed = {self.data: training_batch}
+            #         sess.run(self.optimizer, train_feed)
 
 
     def _make_encoder(self, data, latent_dim):
@@ -69,8 +88,8 @@ class BasicVariationalAutoencoder():
     def _make_decoder(self, z, data_shape):
         x = tf.layers.dense(z, 200, tf.nn.relu)
         x = tf.layers.dense(x, 200, tf.nn.relu)
-        logit = tf.layers.dense(x, np.prod(data_shape))
-        logit = tf.reshape(logit, [-1] + data_shape)
+        logit = tf.layers.dense(x)
+        logit = tf.reshape(logit, [-1] + logit.shape)
         return tfd.Independent(tfd.Binomial(logits=logit, total_count=2.))
 
 
