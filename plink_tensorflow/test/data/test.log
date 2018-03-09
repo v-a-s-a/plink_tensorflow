@@ -1,0 +1,26 @@
+PLINK v1.90b5.1 64-bit (20 Dec 2017)
+Options in effect:
+  --file test
+  --make-bed
+  --out test
+
+Hostname: Vassilys-MacBook-Pro.local
+Working directory: /Users/vasa/singularity-vm/plink_tensorflow/plink_tensorflow/test/data
+Start time: Fri Mar  9 16:01:05 2018
+
+Random number seed: 1520607665
+16384 MB RAM detected; reserving 8192 MB for main workspace.
+Scanning .ped file... done.
+Performing single-pass .bed write (3 variants, 3 people).
+--file: test-temporary.bed + test-temporary.bim + test-temporary.fam written.
+3 variants loaded from .bim file.
+3 people (3 males, 0 females) loaded from .fam.
+3 phenotype values loaded from .fam.
+Using 1 thread (no multithreaded calculations invoked).
+Before main variant filters, 3 founders and 0 nonfounders present.
+Calculating allele frequencies... done.
+3 variants and 3 people pass filters and QC.
+Among remaining phenotypes, 1 is a case and 2 are controls.
+--make-bed to test.bed + test.bim + test.fam ... done.
+
+End time: Fri Mar  9 16:01:05 2018

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 '''
 Based on the excellent blog post by Danijar Hafner:
 https://danijar.com/building-variational-auto-encoders-in-tensorflow/
@@ -10,22 +10,19 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import tensorflow.contrib.distributions as tfd
 from tqdm import tqdm
+from tensorflow.python import debug as tf_debug
 
 from plink_feed import MetaAnalysisDataset
 
 
 class BasicVariationalAutoencoder():
 
-    def __init__(self):
-
-        # FLAGS
-        batch_size = 100
-        latent_dim = 2
-        epochs = 50
+    def __init__(self, batch_size = 100, latent_dim = 2, epochs = 50):
         
         # Data input
         self.input_dataset = MetaAnalysisDataset(test_prop=0.5)
-        self.data = tf.placeholder(tf.float32, shape=[None, self.input_dataset.m_variants])
+        self.data = tf.placeholder(tf.float32,
+            shape=[None, self.input_dataset.m_variants])
 
         # Define the model.
         prior = self._make_prior(latent_dim=2)
@@ -35,14 +32,15 @@ class BasicVariationalAutoencoder():
 
         # Define the loss.
         make_decoder = tf.make_template('decoder', self._make_decoder) # tf scoping
-        likelihood = make_decoder(self.latent_z, [self.input_dataset.m_variants]).log_prob(self.data)
+        likelihood = make_decoder(self.latent_z,
+            [self.input_dataset.m_variants]).log_prob(self.data)
         divergence = tfd.kl_divergence(posterior, prior)
         self.elbo = tf.reduce_mean(likelihood - divergence)
         self.optimizer = tf.train.AdamOptimizer(0.001).minimize(-self.elbo)
 
 
     def infer_parameters(self):
-        saver = tf.train.Saver()
+        # with tf_debug.LocalCLIDebugWrapperSession(tf.train.MonitoredSession()) as sess:
         with tf.train.MonitoredSession() as sess:
             for epoch in tqdm(range(50)):
                 self.input_dataset.test_train_split()
@@ -52,13 +50,10 @@ class BasicVariationalAutoencoder():
                 for training_batch in tqdm(self.input_dataset.train_set_minibatches()):
                     train_feed = {self.data: training_batch}
                     sess.run(self.optimizer, train_feed)
-            
-            saver.save(sess, FLAGS.train_dir, global_step)
 
 
     def _make_encoder(self, data, latent_dim):
-        x = tf.layers.flatten(data)
-        x = tf.layers.dense(x, 200, tf.nn.relu)
+        x = tf.layers.dense(data, 200, tf.nn.relu)
         x = tf.layers.dense(x, 200, tf.nn.relu)
         loc = tf.layers.dense(x, latent_dim)
         scale = tf.layers.dense(x, latent_dim, tf.nn.softplus)
@@ -72,8 +67,7 @@ class BasicVariationalAutoencoder():
 
 
     def _make_decoder(self, z, data_shape):
-        x = z
-        x = tf.layers.dense(x, 200, tf.nn.relu)
+        x = tf.layers.dense(z, 200, tf.nn.relu)
         x = tf.layers.dense(x, 200, tf.nn.relu)
         logit = tf.layers.dense(x, np.prod(data_shape))
         logit = tf.reshape(logit, [-1] + data_shape)

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 '''
 Creating a feed for PLINK formatted data in a meta-analysis setting.
 
@@ -34,34 +34,85 @@ def minibatch(X, batch_size, shuffle=True):
 
 class MetaAnalysisDataset:
 
-    def __init__(self, test_prop=0.8, raw_data_dir='/plink_tensorflow/data/'):
+    def __init__(self,
+        tf_records_dir='/plink_tensorflow/data/',
+        test_prop=0.8,
+        raw_data_dir='/plink_tensorflow/data/'):
         '''
         Map a directory of plink files to dask arrays and pandas dataframes.
 
         @test_prop: The rough proportion of sample to dedicate to training.
         @raw_data_dir: Directory containing PLINK formatted files for each study.
         '''
-
         self.test_prop = test_prop
 
         # map the input files into pandas dataframes and dask arrays
         root, dirs, files = next(os.walk(raw_data_dir))
         study_plink_prefixes = [root+f.replace('.bim', '') for f in files if f.endswith('.bim')]
-        
+
         # read_plink -> (bim, fam, G)
         print('Generating Dask arrays from study PLINK files...')
+        ## TODO: check that all studies contain the same variants
         self.study_arrays = {os.path.basename(f): read_plink(f) for f in study_plink_prefixes}
         print('Done')
 
-        # split into test/training sets
-        self.test_train_split()
+        # write tf.records
+        self.study_records = self.make_tf_records(tf_records_dir=tf_records_dir)
 
-        ## TODO: check that all studies contain the same variants
+
+    def make_tf_records(self, tf_records_dir, compress=True):
+        '''
+        Write study PLINK files to tf.Records after preprocessing.
+
+        This is based on the example provided in the tensorflow docs:
+            https://github.com/tensorflow/tensorflow/blob/master/tensorflow/ +
+                examples/how_tos/reading_data/convert_to_records.py
+
+        And a nice little gist about having numpy arrays play nice:
+            https://gist.github.com/swyoon/8185b3dcf08ec728fb22b99016dd533f
+
+        Preprocessing:
+            * Fill missing values with binomial draws with population frequency.
+        '''
+        if compress:
+            options = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.GZIP)
+        else:
+            options =  tf.python_io.TFRecordOptions()
+
+        records = {}
+        for study, (bim, fam, G) in self.study_arrays.items():
+            # The dataframe -> array -> dataframe is pretty painful, with an unecessary
+            # type conversion as well.
+            G_df = G.to_dask_dataframe()
+            # TODO: Add random missing data fill
+            G = G_df.fillna(axis=0, method='backfill').values.compute().astype(np.int8)
+
+            filename = os.path.join(tf_records_dir, study + '.tfrecords')
+            print('Writing {}'.format(filename))
+            with tf.python_io.TFRecordWriter(filename, options=options) as tfwriter:
+                # write each individual gene vector to record
+                for sample_j in range(G.shape[1]):
+                    # make a feature containing the gene vector
+                    # import pdb
+                    # pdb.set_trace()
+
+                    # gene_vector = {'gene_vector': tf.train.Feature(
+                    #     bytes_list=tf.train.BytesList(value=[G[:, sample_j].tobytes()]))}
+
+                    gene_vector = {'gene_vector': tf.train.Feature(
+                        int64_list=tf.train.Int64List(value=G[:, sample_j]))}
+
+                    example = tf.train.Example(
+                        features=tf.train.Features(feature=gene_vector))
+                    tfwriter.write(example.SerializeToString())
+            records[study] = filename
+        return records
 
 
     def test_train_split(self):
         '''
-        We split test/train by study.
+        Assign test/train labels randomly to written tf.records files.
+
         We want to make sure that proportion of test/train is related to number of
         samples in each study.
 
@@ -77,19 +128,23 @@ class MetaAnalysisDataset:
         shuffle(studies)
         for study in studies:
             if train_set_size < (total_sample_size * self.test_prop):
-                self.train_studies[study] = self.study_arrays[study]
+                self.train_studies[study] = self.study_records[study]
                 train_set_size += self.study_arrays[study][1].shape[0]
                 self.m_variants = self.study_arrays[study][0].shape[0]
             else:
-                self.test_studies[study] = self.study_arrays[study]
+                self.test_studies[study] = self.study_records[study]
         
-        # some logging
-        print('Training set:\t{} studies and {:.3f} of samples in training set.'.format(len(self.train_studies.keys()), train_set_size/total_sample_size))
-        print('Testing set: \t{} studies, {:.3f} of samples in test set.'.format(len(self.test_studies.keys()), test_set_size/total_sample_size))
+        print('Training set:\t{} studies, {:.3f} of samples.'.format(
+            len(self.train_studies.keys()),
+            train_set_size/total_sample_size))
+        print('Testing set: \t{} studies, {:.3f} of samples.'.format(
+            len(self.test_studies.keys()),
+            test_set_size/total_sample_size))
 
 
     def test_set(self):
-        gene_matrix = da.concatenate([G for (bim, fam, G) in self.test_studies.values()], axis=0)
+        gene_matrix = da.concatenate([G for (bim, fam, G) in self.test_studies.values()],
+            axis=0)
         gene_matrix = da.transpose(gene_matrix).to_dask_dataframe()
         return gene_matrix.fillna(gene_matrix.mean(axis=0), axis=0)
 
