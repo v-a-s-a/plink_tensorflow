@@ -12,7 +12,7 @@ import tensorflow.contrib.distributions as tfd
 from tqdm import tqdm
 from tensorflow.python import debug as tf_debug
 
-from plink_feed import MetaAnalysisDataset
+from single_dataset import SingleDataset
 
 
 class BasicVariationalAutoencoder():
@@ -20,16 +20,16 @@ class BasicVariationalAutoencoder():
     def __init__(self, batch_size = 100, latent_dim = 2, epochs = 50):
         
         # Data input
-        self.input_dataset = MetaAnalysisDataset(test_prop=0.5)
+        self.input_dataset = SingleDataset(plink_file='/plink_tensorflow/data/hapmap1',
+            scratch_dir='/plink_tensorflow/data/')
 
         print('Building computational graph.')
-        self.filenames = tf.placeholder(tf.string, shape=[])
+        self.filenames = tf.placeholder(tf.string, shape=[], name='tf_records_filename')
         self.dataset = tf.data.TFRecordDataset(self.filenames, compression_type=tf.constant('ZLIB'))
         self.dataset = self.dataset.map(self.input_dataset.decode_tf_records)
         
         self.iterator = self.dataset.make_initializable_iterator()
-        next_element = self.iterator.get_next()
-        self.shape = tf.shape(next_element)
+        print('Done')
 
         # self.dataset = tf.data.TFRecordDataset.concatenate(self.dataset)
         # shape = self.dataset.shape
@@ -59,8 +59,12 @@ class BasicVariationalAutoencoder():
         print('Executing compute graph.')
         with tf.Session() as sess:
 
-            sess.run(self.iterator.initializer, feed_dict={self.filenames: self.input_dataset.study_records.values()})
-            sess.run(self.shape)
+
+            # sess.run(self.iterator.initializer,
+            #     feed_dict={self.filenames: self.input_dataset.plink_file})
+            sess.run(self.iterator.initializer, feed_dict={self.filenames: self.input_dataset.plink_file + '.tfrecords'})
+            print(sess.run(self.iterator.get_next()))
+
             # for epoch in tqdm(range(50)):
             #     self.input_dataset.test_train_split()
             #     test_feed = {self.data: self.input_dataset.test_set()}
@@ -69,6 +73,8 @@ class BasicVariationalAutoencoder():
             #     for training_batch in tqdm(self.input_dataset.train_set_minibatches()):
             #         train_feed = {self.data: training_batch}
             #         sess.run(self.optimizer, train_feed)
+        
+        print('Done')
 
 
     def _make_encoder(self, data, latent_dim):
