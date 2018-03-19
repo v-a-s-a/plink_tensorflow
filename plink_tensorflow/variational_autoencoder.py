@@ -18,7 +18,7 @@ from single_dataset import SingleDataset
 
 class BasicVariationalAutoencoder():
 
-    def __init__(self, batch_size = 100, latent_dim = 2, epochs = 50,):
+    def __init__(self, batch_size = 100, latent_dim = 25, epochs = 50):
 
         # Data input
         self.input_dataset = SingleDataset(plink_file='/plink_tensorflow/data/hapmap1',
@@ -30,13 +30,13 @@ class BasicVariationalAutoencoder():
         self.dataset = tf.data.TFRecordDataset(self.filenames, compression_type=tf.constant('ZLIB'))
         self.dataset = self.dataset.map(self.input_dataset.decode_tf_records)
         # self.dataset = self.dataset.repeat(epochs)
-        # self.dataset = self.dataset.batch(10)
+        self.dataset = self.dataset.batch(batch_size)
 
         self.iterator = self.dataset.make_initializable_iterator()
         genotypes = self.iterator.get_next()
 
         genotypes = tf.cast(genotypes, tf.float32)
-        genotypes.set_shape([None, self.m_variants])
+        genotypes.set_shape([None, 1, self.m_variants])
 
         print('Done')
 
@@ -60,15 +60,27 @@ class BasicVariationalAutoencoder():
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
             for epoch in tqdm(range(50)):
+                # test set
                 sess.run(self.iterator.initializer,
                     feed_dict={self.filenames: self.input_dataset.test_files})
-                test_elbo, test_codes = sess.run([self.elbo, self.latent_z])
+                while True:
+                    # consume batches
+                    try:
+                        test_elbo, test_codes = sess.run([self.elbo, self.latent_z])
+                        print('Epoch', epoch, 'elbo', test_elbo)
+                    except tf.errors.OutOfRangeError:
+                        break
 
+                # training set
                 sess.run(self.iterator.initializer,
                     feed_dict={self.filenames: self.input_dataset.train_files})
-                print('Epoch', epoch, 'elbo', test_elbo)
-                sess.run(self.optimizer)
-        
+                while True:
+                    # consume batches
+                    try:
+                        sess.run(self.optimizer)
+                    except tf.errors.OutOfRangeError:
+                        break
+
         print('Done')
 
 
