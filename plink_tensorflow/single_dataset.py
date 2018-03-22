@@ -60,7 +60,7 @@ class SingleDataset:
             {'genotypes_raw': tf.FixedLenFeature([], tf.string)})
 
         gene_vector = tf.decode_raw(data['genotypes_raw'], tf.int8)
-        gene_vector = tf.reshape(gene_vector, tf.stack([1, self.bim.shape[0]]))
+        gene_vector = tf.reshape(gene_vector,[self.bim.shape[0]])
 
         return gene_vector
 
