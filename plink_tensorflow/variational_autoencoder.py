@@ -13,7 +13,7 @@ from tqdm import tqdm
 from tensorflow.python import debug as tf_debug
 from sklearn.model_selection import train_test_split
 
-from single_dataset import SingleDataset
+from datasets import SingleDataset
 
 
 class BasicVariationalAutoencoder():
@@ -36,7 +36,7 @@ class BasicVariationalAutoencoder():
         genotypes = self.iterator.get_next()
 
         genotypes = tf.cast(genotypes, tf.float32)
-        genotypes.set_shape([None, 1, self.m_variants])
+        genotypes.set_shape([None, self.m_variants])
 
         print('Done')
 
@@ -85,8 +85,8 @@ class BasicVariationalAutoencoder():
 
 
     def _make_encoder(self, data, latent_dim):
-        x = tf.layers.dense(data, 200, tf.nn.relu)
-        x = tf.layers.dense(x, 200, tf.nn.relu)
+        x = tf.layers.dense(data, 512, tf.nn.relu)
+        x = tf.layers.dense(x, 512, tf.nn.relu)
         loc = tf.layers.dense(x, latent_dim)
         scale = tf.layers.dense(x, latent_dim, tf.nn.softplus)
         return tfd.MultivariateNormalDiag(loc, scale)
@@ -99,8 +99,8 @@ class BasicVariationalAutoencoder():
 
 
     def _make_decoder(self, z):
-        x = tf.layers.dense(z, 200, tf.nn.relu)
-        logits = tf.layers.dense(x, 200, tf.nn.relu)
+        x = tf.layers.dense(z, 512, tf.nn.relu)
+        logits = tf.layers.dense(x, 512, tf.nn.relu)
         logits = tf.layers.dense(x, self.m_variants)
         return tfd.Independent(tfd.Binomial(logits=logits, total_count=2.))
 
