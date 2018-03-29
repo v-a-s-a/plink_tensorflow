@@ -23,7 +23,7 @@ class SingleDataset:
         self.scratch_dir = scratch_dir
 
         # read plink data
-        print('Reading PLINK data...')
+        print('\nReading PLINK data...')
         self.bim, self.fam, G = read_plink(plink_file)
         # import ipdb; ipdb.set_trace()
         print('Done')
@@ -33,13 +33,11 @@ class SingleDataset:
             G_df = dd.from_dask_array(da.transpose(G))
             G_df = G_df.fillna(value=1) # (. _ . )
             G_df = G_df.astype(np.int8)
-            # G_df = G_df.loc[0:200, :]
             tf_records_filenames = G_df.apply(self._write_records, axis=1).compute()
+            print('Done')
         else:
             root, dirs, files = next(os.walk(scratch_dir))
             tf_records_filenames = [root + f for f in files if f.endswith('.tfrecords')]
-
-        print('Done')
 
         # split into training and test batches
         self.train_files, self.test_files = train_test_split(tf_records_filenames,

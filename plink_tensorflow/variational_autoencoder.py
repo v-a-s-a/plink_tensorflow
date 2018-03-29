@@ -20,91 +20,110 @@ class BasicVariationalAutoencoder():
 
     def __init__(self, batch_size = 1000, latent_dim = 25, epochs = 50):
 
-        # Data input
-        self.input_dataset = SingleDataset(plink_file='/plink_tensorflow/data/test/scz_easy-access_wave2.no_trio.bgn',
-            scratch_dir='/plink_tensorflow/data/test/',
-            overwrite=False)
-        self.m_variants = self.input_dataset.bim.shape[0]
+        self.epochs = epochs
         self.latent_dim = latent_dim
 
-        print('Building computational graph.')
-        self.training_filenames = tf.placeholder(tf.string, shape=[None])
-        self.test_filenames = tf.placeholder(tf.string, shape=[None])
+        # Data input
+        plink_dataset = SingleDataset(plink_file='/plink_tensorflow/data/test/scz_easy-access_wave2.no_trio.bgn',
+            scratch_dir='/plink_tensorflow/data/test/',
+            overwrite=False)
+        self.m_variants = plink_dataset.bim.shape[0]
+        self.total_train_batches = (len(plink_dataset.train_files) // batch_size) + 1
+        self.total_test_batches = (len(plink_dataset.test_files) // batch_size) + 1
 
-        self.training_dataset = tf.data.TFRecordDataset(self.training_filenames, compression_type=tf.constant('ZLIB'))
-        self.training_dataset = self.training_dataset.map(self.input_dataset.decode_tf_records)
-        self.training_dataset = self.training_dataset.batch(batch_size)
+        print('\nTraining Summary:')
+        print('\tTraining files: {}'.format(len(plink_dataset.train_files)))
+        print('\tTesting  files: {}'.format(len(plink_dataset.test_files)))
+        print('\tTraining batches: {}'.format(self.total_train_batches))
+        print('\tTesing  batches: {}'.format(self.total_test_batches))
 
-        self.test_dataset = tf.data.TFRecordDataset(self.test_filenames, compression_type=tf.constant('ZLIB'))
-        self.test_dataset = self.test_dataset.map(self.input_dataset.decode_tf_records)
-        self.test_dataset = self.test_dataset.batch(batch_size)
+        print('\nBuilding computational graph...')
+        # Input pipeline
+        test_dataset = self.build_test_dataset(plink_dataset, batch_size)
+        training_dataset = self.build_training_dataset(plink_dataset, batch_size)
 
-        self.training_iterator = self.training_dataset.make_initializable_iterator()
+        self.handle = tf.placeholder(tf.string, shape=[])
+        self.iterator = tf.data.Iterator.from_string_handle(
+            self.handle, training_dataset.output_types, training_dataset.output_shapes)
 
-        handle = tf.placeholder(tf.string, shape=[])
-        iterator = tf.data.Iterator.from_string_handle(
-            handle, self.training_dataset.output_types, self.training_dataset.output_shapes)
-        next_element = iterator.get_next()
-
-        training_iterator = self.training_dataset.make_initializable_iterator()
-        validation_iterator = self.test_dataset.make_initializable_iterator()
-
-        training_handle = sess.run(training_iterator.string_handle())
-        validation_handle = sess.run(validation_iterator.string_handle())
+        self.training_iterator = training_dataset.make_initializable_iterator()
+        self.test_iterator = test_dataset.make_initializable_iterator()
 
         genotypes = self.iterator.get_next()
 
         genotypes = tf.cast(genotypes, tf.float32, name='cast_genotypes')
         genotypes.set_shape([None, self.m_variants])
 
-        print('Done')
-
         # Define the model.
-        prior = self._make_prior(latent_dim=self.latent_dim)
-        make_encoder = tf.make_template('encoder', self._make_encoder) 
+        prior = self.make_prior(latent_dim=self.latent_dim)
+        make_encoder = tf.make_template('encoder', self.make_encoder) 
         posterior = make_encoder(genotypes, latent_dim=self.latent_dim)
         self.latent_z = posterior.sample()
 
         # Define the loss.
-        make_decoder = tf.make_template('decoder', self._make_decoder)
+        make_decoder = tf.make_template('decoder', self.make_decoder)
         likelihood = make_decoder(self.latent_z).log_prob(genotypes)
         divergence = tfd.kl_divergence(posterior, prior)
         self.elbo = tf.reduce_mean(likelihood - divergence)
         self.optimizer = tf.train.AdamOptimizer(0.001).minimize(-self.elbo)
+        print('Done')
+
+
+
+    def build_training_dataset(self, plink_dataset, batch_size):
+        with tf.device("/cpu:0"):
+            training_dataset = tf.data.TFRecordDataset(plink_dataset.train_files,
+                compression_type=tf.constant('ZLIB'))
+            training_dataset = training_dataset.map(plink_dataset.decode_tf_records)
+            training_dataset = training_dataset.batch(batch_size)
+
+        return training_dataset
+
+
+    def build_test_dataset(self, plink_dataset, batch_size):
+        with tf.device("/cpu:0"):
+            test_dataset = tf.data.TFRecordDataset(plink_dataset.test_files,
+                compression_type=tf.constant('ZLIB'))
+            test_dataset = test_dataset.map(plink_dataset.decode_tf_records)
+            test_dataset = test_dataset.batch(batch_size)
+
+        return test_dataset        
 
 
     def infer_parameters(self):
-        print('Executing compute graph.')
+        print('\nExecuting compute graph...')
         with tf_debug.LocalCLIDebugWrapperSession(tf.Session()) as sess:
         # with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
-            for epoch in tqdm(range(50)):
-                # test set
-                sess.run(self.test_iterator.initializer,
-                    feed_dict={self.filenames: self.input_dataset.test_files})
-                while True:
-                    # consume batches
-                    try:
-                        test_elbo = sess.run(self.elbo,
-                            feed_dict={self.filenames: self.input_dataset.train_files})
-                        print('Epoch', epoch, 'elbo', test_elbo)
-                    except tf.errors.OutOfRangeError:
-                        break
+            training_handle = sess.run(self.training_iterator.string_handle())
+            test_handle = sess.run(self.test_iterator.string_handle())
 
-                # training set
-                sess.run(self.iterator.initializer,
-                    feed_dict={self.filenames: self.input_dataset.train_files})
-                while True:
-                    # consume batches
-                    try:
-                        sess.run(self.optimizer)
-                    except tf.errors.OutOfRangeError:
-                        break
+            for epoch in tqdm(range(self.epochs), desc='Epoch progress'):
+                # train
+                sess.run(self.training_iterator.initializer)
+                train_pbar = tqdm(total=self.total_train_batches, desc='Train batches')
+                for train_batch in range(self.total_train_batches):
+                    sess.run(self.optimizer, feed_dict={self.handle: training_handle})
+                    train_pbar.update()
+                train_pbar.close()
+                break
+
+                # test
+                sess.run(self.test_iterator.initializer)
+                test_elbos = []
+                test_pbar = tqdm(total=self.total_test_batches, desc='Test batches')
+                for test_batch in range(self.total_test_batches):
+                    test_elbo = sess.run(self.elbo, feed_dict={self.handle: test_handle})
+                    test_elbos.append(test_elbo)
+                    test_pbar.update()
+                test_pbar.close()
+                break
+                print('Epoch', epoch, 'mean elbo:', np.mean(test_elbos))
 
         print('Done')
 
 
-    def _make_encoder(self, data, latent_dim):
+    def make_encoder(self, data, latent_dim):
         x = tf.layers.dense(data, 200, tf.nn.relu)
         x = tf.layers.dense(x, 200, tf.nn.relu)
         loc = tf.layers.dense(x, latent_dim)
@@ -112,13 +131,13 @@ class BasicVariationalAutoencoder():
         return tfd.MultivariateNormalDiag(loc, scale)
 
 
-    def _make_prior(self, latent_dim):
+    def make_prior(self, latent_dim):
         loc = tf.zeros(latent_dim)
         scale = tf.ones(latent_dim)
         return tfd.MultivariateNormalDiag(loc, scale)
 
 
-    def _make_decoder(self, z):
+    def make_decoder(self, z):
         x = tf.layers.dense(z, 200, tf.nn.relu)
         x = tf.layers.dense(x, 200, tf.nn.relu)
         logits = tf.layers.dense(x, self.m_variants)
