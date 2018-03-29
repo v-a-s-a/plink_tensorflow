@@ -28,11 +28,16 @@ class BasicVariationalAutoencoder():
         self.latent_dim = latent_dim
 
         print('Building computational graph.')
-        self.filenames = tf.placeholder(tf.string, shape=[None], name='tf_records_filename')
-        self.dataset = tf.data.TFRecordDataset(self.filenames, compression_type=tf.constant('ZLIB'))
-        self.dataset = self.dataset.map(self.input_dataset.decode_tf_records)
-        # self.dataset = self.dataset.repeat(epochs)
-        self.dataset = self.dataset.batch(batch_size)
+        self.training_filenames = tf.placeholder(tf.string, shape=[None])
+        self.test_filenames = tf.placeholder(tf.string, shape=[None])
+
+        self.training_dataset = tf.data.TFRecordDataset(self.training_filenames, compression_type=tf.constant('ZLIB'))
+        self.training_dataset = self.training_dataset.map(self.input_dataset.decode_tf_records)
+        self.training_dataset = self.training_dataset.batch(batch_size)
+
+        self.test_dataset = tf.data.TFRecordDataset(self.test_filenames, compression_type=tf.constant('ZLIB'))
+        self.test_dataset = self.test_dataset.map(self.input_dataset.decode_tf_records)
+        self.test_dataset = self.test_dataset.batch(batch_size)
 
         self.iterator = self.dataset.make_initializable_iterator()
         genotypes = self.iterator.get_next()
