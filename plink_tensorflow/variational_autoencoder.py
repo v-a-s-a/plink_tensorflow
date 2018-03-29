@@ -39,7 +39,19 @@ class BasicVariationalAutoencoder():
         self.test_dataset = self.test_dataset.map(self.input_dataset.decode_tf_records)
         self.test_dataset = self.test_dataset.batch(batch_size)
 
-        self.iterator = self.dataset.make_initializable_iterator()
+        self.training_iterator = self.training_dataset.make_initializable_iterator()
+
+        handle = tf.placeholder(tf.string, shape=[])
+        iterator = tf.data.Iterator.from_string_handle(
+            handle, self.training_dataset.output_types, self.training_dataset.output_shapes)
+        next_element = iterator.get_next()
+
+        training_iterator = self.training_dataset.make_initializable_iterator()
+        validation_iterator = self.test_dataset.make_initializable_iterator()
+
+        training_handle = sess.run(training_iterator.string_handle())
+        validation_handle = sess.run(validation_iterator.string_handle())
+
         genotypes = self.iterator.get_next()
 
         genotypes = tf.cast(genotypes, tf.float32, name='cast_genotypes')
@@ -68,7 +80,7 @@ class BasicVariationalAutoencoder():
             sess.run(tf.global_variables_initializer())
             for epoch in tqdm(range(50)):
                 # test set
-                sess.run(self.iterator.initializer,
+                sess.run(self.test_iterator.initializer,
                     feed_dict={self.filenames: self.input_dataset.test_files})
                 while True:
                     # consume batches
