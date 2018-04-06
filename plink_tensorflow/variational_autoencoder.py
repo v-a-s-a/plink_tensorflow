@@ -38,7 +38,7 @@ class BasicVariationalAutoencoder():
         print('\tTesing  batches: {}'.format(self.total_test_batches))
 
         print('\nBuilding computational graph...')
-        # Input pipeline
+        # Input pipeline.
         test_dataset = self.build_test_dataset(plink_dataset, batch_size)
         training_dataset = self.build_training_dataset(plink_dataset, batch_size)
 
@@ -56,24 +56,32 @@ class BasicVariationalAutoencoder():
 
         # Define the model.
         prior = self.make_prior(latent_dim=self.latent_dim)
-        make_encoder = tf.make_template('encoder', self.make_encoder) 
+        make_encoder = tf.make_template('encoder', self.make_encoder)
         posterior = make_encoder(genotypes, latent_dim=self.latent_dim)
         self.latent_z = posterior.sample()
 
         # Define the loss.
         make_decoder = tf.make_template('decoder', self.make_decoder)
-        likelihood = make_decoder(self.latent_z).log_prob(genotypes)
+
+        snp_generator = make_decoder(self.latent_z)
+        decoder = tfd.Independent(snp_generator, reinterpreted_batch_ndims=1)
+
+        likelihood = decoder.log_prob(genotypes)
         divergence = tfd.kl_divergence(posterior, prior)
         self.elbo = tf.reduce_mean(likelihood - divergence)
-        self.optimizer = tf.train.AdamOptimizer(0.001).minimize(-self.elbo)
-        print('Done')
+        self.optimizer = tf.train.AdamOptimizer(0.0001).minimize(-self.elbo)
 
+        # export parameters from graph.
+        self.probs = make_decoder(prior.sample(1)).probs
+
+        print('Done')
 
 
     def build_training_dataset(self, plink_dataset, batch_size):
         with tf.device("/cpu:0"):
             training_dataset = tf.data.TFRecordDataset(plink_dataset.train_files,
                 compression_type=tf.constant('ZLIB'))
+            training_dataset = training_dataset.shuffle(buffer_size=len(plink_dataset.train_files))
             training_dataset = training_dataset.map(plink_dataset.decode_tf_records)
             training_dataset = training_dataset.batch(batch_size)
 
@@ -84,6 +92,7 @@ class BasicVariationalAutoencoder():
         with tf.device("/cpu:0"):
             test_dataset = tf.data.TFRecordDataset(plink_dataset.test_files,
                 compression_type=tf.constant('ZLIB'))
+            test_dataset = test_dataset.shuffle(buffer_size=len(plink_dataset.test_files))
             test_dataset = test_dataset.map(plink_dataset.decode_tf_records)
             test_dataset = test_dataset.batch(batch_size)
 
@@ -92,8 +101,8 @@ class BasicVariationalAutoencoder():
 
     def infer_parameters(self):
         print('\nExecuting compute graph...')
-        with tf_debug.LocalCLIDebugWrapperSession(tf.Session()) as sess:
-        # with tf.Session() as sess:
+        # with tf_debug.LocalCLIDebugWrapperSession(tf.Session()) as sess:
+        with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
             training_handle = sess.run(self.training_iterator.string_handle())
             test_handle = sess.run(self.test_iterator.string_handle())
@@ -106,7 +115,12 @@ class BasicVariationalAutoencoder():
                     sess.run(self.optimizer, feed_dict={self.handle: training_handle})
                     train_pbar.update()
                 train_pbar.close()
-                break
+
+                probs = sess.run(self.probs)
+                sample = np.random.binomial(n=2., p=probs)
+                print('')
+                print(probs)
+                print(sample[0, 0:10])
 
                 # test
                 sess.run(self.test_iterator.initializer)
@@ -117,15 +131,16 @@ class BasicVariationalAutoencoder():
                     test_elbos.append(test_elbo)
                     test_pbar.update()
                 test_pbar.close()
-                break
-                print('Epoch', epoch, 'mean elbo:', np.mean(test_elbos))
+                print('Epoch;', epoch, 'mean elbo:', np.mean(test_elbos))
 
         print('Done')
 
 
     def make_encoder(self, data, latent_dim):
         x = tf.layers.dense(data, 200, tf.nn.relu)
+        x = tf.layers.batch_normalization(x)
         x = tf.layers.dense(x, 200, tf.nn.relu)
+        x = tf.layers.dropout(x, 0.1)
         loc = tf.layers.dense(x, latent_dim)
         scale = tf.layers.dense(x, latent_dim, tf.nn.softplus)
         return tfd.MultivariateNormalDiag(loc, scale)
@@ -139,9 +154,11 @@ class BasicVariationalAutoencoder():
 
     def make_decoder(self, z):
         x = tf.layers.dense(z, 200, tf.nn.relu)
+        x = tf.layers.batch_normalization(x)
         x = tf.layers.dense(x, 200, tf.nn.relu)
         logits = tf.layers.dense(x, self.m_variants)
-        return tfd.Independent(tfd.Binomial(logits=logits, total_count=2.), reinterpreted_batch_ndims=1)
+        logits = tf.reshape(logits, [-1] + [self.m_variants])
+        return tfd.Binomial(logits=logits, total_count=2.)
 
 
 if __name__ == '__main__':
