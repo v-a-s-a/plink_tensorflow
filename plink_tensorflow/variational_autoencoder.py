@@ -4,6 +4,7 @@ Based on the excellent blog post by Danijar Hafner:
 https://danijar.com/building-variational-auto-encoders-in-tensorflow/
 '''
 
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -18,8 +19,9 @@ from datasets import SingleDataset
 
 class BasicVariationalAutoencoder():
 
-    def __init__(self, batch_size = 1000, latent_dim = 25, epochs = 50):
+    def __init__(self, batch_size = 1000, latent_dim = 25, epochs = 50, log_dir='/plink_tensorflow/experiments/'):
 
+        self.log_dir = log_dir
         self.epochs = epochs
         self.latent_dim = latent_dim
 
@@ -30,6 +32,8 @@ class BasicVariationalAutoencoder():
         self.m_variants = plink_dataset.bim.shape[0]
         self.total_train_batches = (len(plink_dataset.train_files) // batch_size) + 1
         self.total_test_batches = (len(plink_dataset.test_files) // batch_size) + 1
+    
+        self.bim = plink_dataset.bim
 
         print('\nTraining Summary:')
         print('\tTraining files: {}'.format(len(plink_dataset.train_files)))
@@ -116,12 +120,6 @@ class BasicVariationalAutoencoder():
                     train_pbar.update()
                 train_pbar.close()
 
-                probs = sess.run(self.probs)
-                sample = np.random.binomial(n=2., p=probs)
-                print('')
-                print(probs)
-                print(sample[0, 0:10])
-
                 # test
                 sess.run(self.test_iterator.initializer)
                 test_elbos = []
@@ -132,14 +130,19 @@ class BasicVariationalAutoencoder():
                     test_pbar.update()
                 test_pbar.close()
                 print('Epoch;', epoch, 'mean elbo:', np.mean(test_elbos))
+                
+                probs = self.probs.eval()
+                self.bim['probs_' + str(epoch)] = probs[0]
+                self.bim.to_csv(os.path.join(self.log_dir, 'mhc_bim.tsv'), sep='\t')
 
         print('Done')
 
 
     def make_encoder(self, data, latent_dim):
-        x = tf.layers.dense(data, 200, tf.nn.relu)
+        x = tf.layers.batch_normalization(data)
+        x = tf.layers.dense(x, 200, tf.nn.selu)
         x = tf.layers.batch_normalization(x)
-        x = tf.layers.dense(x, 200, tf.nn.relu)
+        x = tf.layers.dense(x, 200, tf.nn.selu)
         x = tf.layers.dropout(x, 0.1)
         loc = tf.layers.dense(x, latent_dim)
         scale = tf.layers.dense(x, latent_dim, tf.nn.softplus)
@@ -153,9 +156,9 @@ class BasicVariationalAutoencoder():
 
 
     def make_decoder(self, z):
-        x = tf.layers.dense(z, 200, tf.nn.relu)
+        x = tf.layers.dense(z, 200, tf.nn.selu)
         x = tf.layers.batch_normalization(x)
-        x = tf.layers.dense(x, 200, tf.nn.relu)
+        x = tf.layers.dense(x, 200, tf.nn.selu)
         logits = tf.layers.dense(x, self.m_variants)
         logits = tf.reshape(logits, [-1] + [self.m_variants])
         return tfd.Binomial(logits=logits, total_count=2.)
