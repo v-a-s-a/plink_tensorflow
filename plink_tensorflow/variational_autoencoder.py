@@ -29,15 +29,15 @@ class BasicVariationalAutoencoder():
         plink_dataset = SingleDataset(plink_file='/plink_tensorflow/data/test/scz_easy-access_wave2.no_trio.bgn',
             scratch_dir='/plink_tensorflow/data/test/',
             overwrite=False)
-        self.m_variants = plink_dataset.bim.shape[0]
-        self.total_train_batches = (len(plink_dataset.train_files) // batch_size) + 1
-        self.total_test_batches = (len(plink_dataset.test_files) // batch_size) + 1
+        self.m_variants = plink_dataset.m_variants
+        self.total_train_batches = (plink_dataset.train_size // batch_size) + 1
+        self.total_test_batches = (plink_dataset.test_size // batch_size) + 1
     
         self.bim = plink_dataset.bim
 
         print('\nTraining Summary:')
-        print('\tTraining files: {}'.format(len(plink_dataset.train_files)))
-        print('\tTesting  files: {}'.format(len(plink_dataset.test_files)))
+        print('\tTraining samples: {}'.format(plink_dataset.train_size))
+        print('\tTesting  samples: {}'.format(plink_dataset.test_size))
         print('\tTraining batches: {}'.format(self.total_train_batches))
         print('\tTesing  batches: {}'.format(self.total_test_batches))
 
@@ -54,9 +54,7 @@ class BasicVariationalAutoencoder():
         self.test_iterator = test_dataset.make_initializable_iterator()
 
         genotypes = self.iterator.get_next()
-
-        genotypes = tf.cast(genotypes, tf.float32, name='cast_genotypes')
-        genotypes.set_shape([None, self.m_variants])
+        self.genotypes = genotypes
 
         # Define the model.
         prior = self.make_prior(latent_dim=self.latent_dim)
@@ -83,10 +81,10 @@ class BasicVariationalAutoencoder():
 
     def build_training_dataset(self, plink_dataset, batch_size):
         with tf.device("/cpu:0"):
-            training_dataset = tf.data.TFRecordDataset(plink_dataset.train_files,
+            training_dataset = tf.data.TFRecordDataset([plink_dataset.train_filename],
                 compression_type=tf.constant('ZLIB'))
-            training_dataset = training_dataset.shuffle(buffer_size=len(plink_dataset.train_files))
-            training_dataset = training_dataset.map(plink_dataset.decode_tf_records)
+            training_dataset = training_dataset.map(plink_dataset.decode_tfrecords)
+            training_dataset = training_dataset.shuffle(buffer_size=plink_dataset.train_size)
             training_dataset = training_dataset.batch(batch_size)
 
         return training_dataset
@@ -94,10 +92,10 @@ class BasicVariationalAutoencoder():
 
     def build_test_dataset(self, plink_dataset, batch_size):
         with tf.device("/cpu:0"):
-            test_dataset = tf.data.TFRecordDataset(plink_dataset.test_files,
+            test_dataset = tf.data.TFRecordDataset([plink_dataset.test_filename],
                 compression_type=tf.constant('ZLIB'))
-            test_dataset = test_dataset.shuffle(buffer_size=len(plink_dataset.test_files))
-            test_dataset = test_dataset.map(plink_dataset.decode_tf_records)
+            test_dataset = test_dataset.map(plink_dataset.decode_tfrecords)
+            test_dataset = test_dataset.shuffle(buffer_size=plink_dataset.test_size)
             test_dataset = test_dataset.batch(batch_size)
 
         return test_dataset        
@@ -141,7 +139,10 @@ class BasicVariationalAutoencoder():
     def make_encoder(self, data, latent_dim):
         x = tf.layers.batch_normalization(data)
         x = tf.layers.dense(x, 200, tf.nn.selu)
-        x = tf.layers.batch_normalization(x)
+        x = tf.layers.dense(x, 200, tf.nn.selu)
+        x = tf.layers.dense(x, 200, tf.nn.selu)
+        x = tf.layers.dense(x, 200, tf.nn.selu)
+        x = tf.layers.dense(x, 200, tf.nn.selu)
         x = tf.layers.dense(x, 200, tf.nn.selu)
         x = tf.layers.dropout(x, 0.1)
         loc = tf.layers.dense(x, latent_dim)
@@ -157,7 +158,10 @@ class BasicVariationalAutoencoder():
 
     def make_decoder(self, z):
         x = tf.layers.dense(z, 200, tf.nn.selu)
-        x = tf.layers.batch_normalization(x)
+        x = tf.layers.dense(x, 200, tf.nn.selu)
+        x = tf.layers.dense(z, 200, tf.nn.selu)
+        x = tf.layers.dense(x, 200, tf.nn.selu)
+        x = tf.layers.dense(z, 200, tf.nn.selu)
         x = tf.layers.dense(x, 200, tf.nn.selu)
         logits = tf.layers.dense(x, self.m_variants)
         logits = tf.reshape(logits, [-1] + [self.m_variants])
