@@ -13,13 +13,14 @@ From: tensorflow/tensorflow:latest-py3
     apt-get install -y --force-yes python-dev python-numpy python-matplotlib python-h5py 
     apt-get install -y --force-yes python-setuptools 
     apt-get install -y --force-yes python3-tk
-    pip install --upgrade pip 
-    pip install --upgrade pandas 
-    pip install --upgrade scikit-learn
-    pip install --upgrade numpy
+    #pip3 install --upgrade pip setuptools
+    pip3 install --upgrade pandas 
+    pip3 install --upgrade scikit-learn
+    pip3 install --upgrade numpy
 
     # install python packages
-    pip install --upgrade dask[dataframe]
-    pip install --upgrade pandas-plink
-    pip install --upgrade ipdb
+    pip3 install --upgrade dask[dataframe]
+    pip3 install --upgrade pandas-plink
+    pip3 install --upgrade ipdb
+    pip3 install --user --upgrade tfp-nightly 
     
