@@ -1,5 +1,5 @@
 Bootstrap: docker
-From: tensorflow/tensorflow:latest-py3
+From: index.docker.io/tensorflow/tensorflow:1.7.0-py3
 
 %setup
 %test
@@ -8,9 +8,8 @@ From: tensorflow/tensorflow:latest-py3
 %post
     # prep
     apt-get -y update 
-    apt-get install -y --force-yes make 
-    apt-get install -y vim wget python3 python3-pip git 
-    apt-get install -y --force-yes python3-dev 
+    apt-get install -y vim wget git
+    apt-get install -y python3-dev python3 python3-pip python-setuptools 
 
     # install python packages
     pip3 install --upgrade 
