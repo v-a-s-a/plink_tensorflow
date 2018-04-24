@@ -13,8 +13,6 @@ From: index.docker.io/tensorflow/tensorflow:1.7.0-py3
 
     # install python packages
     pip3 install --upgrade 
-    pip3 install --upgrade scikit-learn
-    pip3 install --upgrade dask[dataframe]
+    pip3 install --upgrade scikit-learn dask[dataframe] ipdb
     pip3 install --no-cache-dir --upgrade pandas-plink
-    pip3 install --upgrade ipdb
     pip3 install --upgrade tfp-nightly 
