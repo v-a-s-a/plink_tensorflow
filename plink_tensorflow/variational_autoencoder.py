@@ -127,7 +127,7 @@ class BasicVariationalAutoencoder():
                     test_elbos.append(test_elbo)
                     test_pbar.update()
                 test_pbar.close()
-                print('Epoch;', epoch, 'mean elbo:', np.mean(test_elbos))
+                print('Epoch', epoch, ': mean elbo =', np.mean(test_elbos))
                 
                 probs = self.probs.eval()
                 self.bim['probs_' + str(epoch)] = probs[0]
@@ -159,9 +159,9 @@ class BasicVariationalAutoencoder():
     def make_decoder(self, z):
         x = tf.layers.dense(z, 200, tf.nn.selu)
         x = tf.layers.dense(x, 200, tf.nn.selu)
-        x = tf.layers.dense(z, 200, tf.nn.selu)
         x = tf.layers.dense(x, 200, tf.nn.selu)
-        x = tf.layers.dense(z, 200, tf.nn.selu)
+        x = tf.layers.dense(x, 200, tf.nn.selu)
+        x = tf.layers.dense(x, 200, tf.nn.selu)
         x = tf.layers.dense(x, 200, tf.nn.selu)
         logits = tf.layers.dense(x, self.m_variants)
         logits = tf.reshape(logits, [-1] + [self.m_variants])
