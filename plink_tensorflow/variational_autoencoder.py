@@ -19,31 +19,6 @@ from datasets import SingleDataset
 
 class BasicVariationalAutoencoder():
 
-<<<<<<< HEAD
-    def __init__(self, batch_size = 10, latent_dim = 25, epochs = 50):
-
-        self.epochs = epochs
-        self.batch_size = batch_size
-        self.latent_dim = latent_dim
-
-        # Data input
-        self.input_dataset = SingleDataset(plink_file='/plink_tensorflow/data/hapmap1',
-            scratch_dir='/plink_tensorflow/data/')
-        self.m_variants = self.input_dataset.bim.shape[0]
-
-        print('Building computational graph.')
-        self.filenames = tf.placeholder(tf.string, shape=[None], name='tf_records_filename')
-        self.dataset = tf.data.TFRecordDataset(self.filenames, compression_type=tf.constant('ZLIB'))
-        self.dataset = self.dataset.map(self.input_dataset.decode_tf_records)
-        # self.dataset = self.dataset.repeat(epochs)
-        self.dataset = self.dataset.apply(tf.contrib.data.batch_and_drop_remainder(batch_size))
-
-        self.iterator = self.dataset.make_initializable_iterator()
-        genotypes = self.iterator.get_next()
-
-        genotypes = tf.cast(genotypes, tf.float32)
-        genotypes.set_shape([self.batch_size, self.m_variants])
-=======
     def __init__(self, batch_size = 1000, latent_dim = 25, epochs = 50, log_dir='/plink_tensorflow/experiments/'):
 
         self.log_dir = log_dir
@@ -77,19 +52,13 @@ class BasicVariationalAutoencoder():
 
         self.training_iterator = training_dataset.make_initializable_iterator()
         self.test_iterator = test_dataset.make_initializable_iterator()
->>>>>>> master
 
         genotypes = self.iterator.get_next()
         self.genotypes = genotypes
 
         # Define the model.
-<<<<<<< HEAD
-        prior = self._make_prior(latent_dim=self.latent_dim)
-        make_encoder = tf.make_template('encoder', self._make_encoder) 
-=======
         prior = self.make_prior(latent_dim=self.latent_dim)
         make_encoder = tf.make_template('encoder', self.make_encoder)
->>>>>>> master
         posterior = make_encoder(genotypes, latent_dim=self.latent_dim)
         self.latent_z = posterior.sample()
 
