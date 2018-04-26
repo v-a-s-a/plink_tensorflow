@@ -14,16 +14,20 @@ from tqdm import tqdm
 from tensorflow.python import debug as tf_debug
 from sklearn.model_selection import train_test_split
 
+from tensorflow.contrib.nn import conv1d_transpose
+
+
 from datasets import SingleDataset
 
 
-class BasicVariationalAutoencoder():
+class ConvolutionalVariationalAutoencoder():
 
     def __init__(self, batch_size = 1000, latent_dim = 25, epochs = 50, log_dir='/plink_tensorflow/experiments/'):
 
         self.log_dir = log_dir
         self.epochs = epochs
         self.latent_dim = latent_dim
+        self.batch_size = batch_size
 
         # Data input
         plink_dataset = SingleDataset(plink_file='/plink_tensorflow/data/test/scz_easy-access_wave2.no_trio.bgn',
@@ -136,7 +140,21 @@ class BasicVariationalAutoencoder():
         print('Done')
 
 
-    def _make_encoder(self, data, latent_dim):
+    # Create a function that creates one-dimensional convolutional layers
+    ## taken from: https://bigdatascientistblog.wordpress.com/2016/12/09/tensorflow-201-beyond-hello-world-mnist/
+    def conv1d_relu(self, layer_name, input, kernel_shape, bias_shape, stride):
+        with tf.variable_scope(layer_name):
+            weights = tf.get_variable('weights', kernel_shape,
+                initializer=tf.random_normal_initializer())
+            biases = tf.get_variable('biases', bias_shape,
+                initializer=tf.constant_initializer(0.0))
+            conv = tf.nn.conv1d(input, weights,
+                stride=stride, padding='VALID')
+    
+            return tf.nn.relu(conv + biases)
+    
+
+    def make_encoder(self, data, latent_dim):
         '''
         Gene vector -> latent variable
 
@@ -145,29 +163,28 @@ class BasicVariationalAutoencoder():
         '''
         x = tf.reshape(data, [self.batch_size, self.m_variants, 1])
 
-        x = tf.layers.conv1d(x, 32, 5, strides=4, activation=tf.nn.relu, padding='SAME')
-        x = tf.layers.batch_normalization(x)
-        x = tf.nn.elu(x)
+        print('Encoder layer sizes:')
+        print(x.get_shape().as_list())
+        x = tf.layers.conv1d(x, 32, 5, strides=1, activation=tf.nn.relu, padding='SAME')
+        print(x.get_shape().as_list())
 
         x = tf.layers.conv1d(x, 64, 5, strides=4, activation=tf.nn.relu, padding='SAME')
-        x = tf.layers.batch_normalization(x)
-        x = tf.nn.elu(x)
+        print(x.get_shape().as_list())
 
-        x = tf.layers.conv1d(x, 128, 5, strides=4, activation=tf.nn.relu, padding='SAME')
-        x = tf.layers.batch_normalization(x)
-        x = tf.nn.elu(x)
+        x = tf.layers.conv1d(x, 128, 5, strides=4, activation=tf.nn.relu, padding='VALID')
+        print(x.get_shape().as_list())
 
-        x = tf.layers.conv1d(x, 256, 3, activation=tf.nn.relu, padding='VALID')
-        x = tf.layers.batch_normalization(x)
-        x = tf.nn.elu(x)
-
-        x = tf.layers.dropout(x, rate=0.1)
-
+        # drop channel dimension
         x = tf.reshape(x, [self.batch_size, -1])
+
         x = tf.layers.dense(x, self.latent_dim * 2, activation=None)
         
-        loc = tf.layers.dense(x, latent_dim)
-        scale = tf.layers.dense(x, latent_dim, tf.nn.softplus)
+        loc = x[:, :self.latent_dim]
+        scale = tf.nn.softplus(x[:, self.latent_dim:])
+
+        print(loc.get_shape().as_list())
+        print(scale.get_shape().as_list())
+
         return tfd.MultivariateNormalDiag(loc, scale)
 
 
@@ -176,38 +193,47 @@ class BasicVariationalAutoencoder():
         scale = tf.ones(latent_dim)
         return tfd.MultivariateNormalDiag(loc, scale)
 
-    def _make_decoder(self, z):
+
+    def make_decoder(self, z):
         '''
         Latent variable -> gene vector
+
+        This was helpful:
+        https://analysiscenter.github.io/dataset/_modules/dataset/models/tf/layers/conv.html#conv1d_transpose
         '''
-        x = tf.expand_dims(z, axis=-1)
-        x = tf.expand_dims(x, axis=-1)
-         
-        x = tf.layers.conv2d_transpose(x, 256, 3, strides=2, padding='VALID')
 
-        x = tf.layers.batch_normalization(x)
-        x = tf.nn.elu(x)
+        # add channel and synthetic dimension to sequence
+        x = tf.reshape(z, [self.batch_size, 1, self.latent_dim, 1])
 
-        x = tf.layers.conv2d_transpose(x, 128, 5, strides=4, padding='VALID')
-        x = tf.layers.batch_normalization(x)
-        x = tf.nn.elu(x)
+        print('Decoder layer sizes:')
+        print(x.get_shape().as_list())
+        x = tf.layers.conv2d_transpose(x, filters=256, kernel_size=(1, 20),
+            strides=(1, 1), padding='VALID', activation=tf.nn.relu)
+        x = tf.squeeze(x, [1])
+        print(x.get_shape().as_list())
 
-        x = tf.layers.conv2d_transpose(x, 64, 5, strides=4, padding='VALID')
-        x = tf.layers.batch_normalization(x)
-        x = tf.nn.elu(x)
+        x = tf.expand_dims(x, axis=1)
+        x = tf.layers.conv2d_transpose(x, filters=128, kernel_size=(1, 10),
+            strides=(1, 1), padding='VALID', activation=tf.nn.relu)
+        x = tf.squeeze(x, [1])
 
-        x = tf.layers.conv2d_transpose(x, 32, 5, strides=4, padding='SAME')
-        x = tf.layers.batch_normalization(x)
-        x = tf.nn.elu(x)
-        
-        logits = tf.layers.conv2d_transpose(x, 1, 5, strides=4, padding='SAME')
-        
-        logits = tf.squeeze(logits, axis=-1)
-        logits = tf.squeeze(logits, axis=2)
+        print(x.get_shape().as_list())
+        x = tf.expand_dims(x, axis=1)
+        x = tf.layers.conv2d_transpose(x, filters=32, kernel_size=(1, 5),
+            strides=(1, 4), padding='SAME', activation=tf.nn.relu)
+        x = tf.squeeze(x, [1])
+
+        x = tf.expand_dims(x, axis=1)
+        x = tf.layers.conv2d_transpose(x, filters=1, kernel_size=(1, 5),
+            strides=(1, 4), padding='SAME', activation=tf.nn.relu)
+        x = tf.squeeze(x, [1])
+        print(x.get_shape().as_list())
+
+        logits = tf.reshape(x, [self.batch_size, -1])
 
         return tfd.Binomial(logits=logits, total_count=2.)
 
 
 if __name__ == '__main__':
-    vae = BasicVariationalAutoencoder()
+    vae = ConvolutionalVariationalAutoencoder()
     vae.infer_parameters()
