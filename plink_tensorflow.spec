@@ -9,7 +9,7 @@ From: index.docker.io/tensorflow/tensorflow:1.7.0-py3
     # prep
     apt-get -y update 
     apt-get install -y vim wget git
-    apt-get install -y python3-dev python3 python3-pip python-setuptools 
+    apt-get install -y python3-dev python3 python3-pip python-setuptools python3-tk
 
     # install python packages
     pip3 install --upgrade 
